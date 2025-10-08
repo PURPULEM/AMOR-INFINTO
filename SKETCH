@@ -1,0 +1,78 @@
+let bubbles = [];
+let bgAlpha = 20;
+let osc;
+
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+  noStroke();
+  for (let i = 0; i < 25; i++) {
+    bubbles.push(new Bubble(random(width), random(height), random(30, 90)));
+  }
+  osc = new p5.Oscillator('sine');
+  osc.amp(0);
+  osc.start();
+}
+
+function draw() {
+  background(0, bgAlpha);
+  translate(width / 2, height / 2);
+
+  for (let b of bubbles) {
+    b.move();
+    b.display();
+  }
+}
+
+function touchStarted() {
+  for (let b of bubbles) {
+    if (dist(mouseX - width / 2, mouseY - height / 2, b.x, b.y) < b.size / 2) {
+      b.explode();
+      playSound();
+    }
+  }
+}
+
+function playSound() {
+  osc.freq(random(220, 880));
+  osc.amp(0.1, 0.05);
+  osc.amp(0, 1);
+}
+
+class Bubble {
+  constructor(x, y, size) {
+    this.x = x;
+    this.y = y;
+    this.size = size;
+    this.angle = random(TWO_PI);
+    this.radius = random(80, 300);
+    this.speed = random(0.001, 0.005);
+    this.color = color(random(100, 255), random(100, 255), random(255), 120);
+    this.brightness = 0;
+  }
+
+  move() {
+    this.angle += this.speed;
+    this.x = cos(this.angle) * this.radius;
+    this.y = sin(this.angle) * this.radius;
+    this.brightness = max(0, this.brightness - 5);
+  }
+
+  display() {
+    fill(red(this.color), green(this.color), blue(this.color), 150 + this.brightness);
+    ellipse(this.x, this.y, this.size);
+  }
+
+  explode() {
+    this.brightness = 255;
+    for (let i = 0; i < 8; i++) {
+      let r = random(10, 60);
+      let a = random(TWO_PI);
+      fill(this.color);
+      ellipse(this.x + cos(a) * r, this.y + sin(a) * r, r * 0.2);
+    }
+  }
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+}
