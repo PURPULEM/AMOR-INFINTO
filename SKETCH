@@ -1,78 +1,230 @@
+/* Amor Infinito - recreación web (Purpulem)
+   Interacción + sonido (touch/click) + mandalas expansivos.
+   - Coloca index.html, style.css y sketch.js en la raíz del repo.
+   - Habilita GitHub Pages en branch main / root.
+*/
+
 let bubbles = [];
-let bgAlpha = 20;
-let osc;
+let mandalas = [];
+let started = false;        // para UX / iOS audio
+let tapOverlayEl = null;
 
 function setup() {
   createCanvas(windowWidth, windowHeight);
   noStroke();
-  for (let i = 0; i < 25; i++) {
-    bubbles.push(new Bubble(random(width), random(height), random(30, 90)));
+  colorMode(HSB, 360, 255, 255, 255);
+
+  // crear burbujas orbitando
+  let N = 40;
+  for (let i = 0; i < N; i++) {
+    let radius = random(min(width, height) * 0.15, min(width, height) * 0.45);
+    let size = random(map(min(width,height), 600, 1400, 8, 36));
+    let speed = random(0.0015, 0.006) * (random() < 0.5 ? 1 : -1);
+    bubbles.push(new Bubble(radius, speed, size));
   }
-  osc = new p5.Oscillator('sine');
-  osc.amp(0);
-  osc.start();
+
+  // crear overlay DOM para instruir a tocar (iOS requiere gesto)
+  createTapOverlay();
 }
 
 function draw() {
-  background(0, bgAlpha);
+  background(0, 24); // leve estela
+
+  // estrellas sutiles (static-ish)
+  drawStars();
+
+  // dibujar y actualizar mandalas (se dibujan antes para dar sensación de profundidad)
+  for (let i = mandalas.length - 1; i >= 0; i--) {
+    mandalas[i].update();
+    mandalas[i].display();
+    if (mandalas[i].done) mandalas.splice(i, 1);
+  }
+
   translate(width / 2, height / 2);
 
+  // burbujas orbitando
   for (let b of bubbles) {
-    b.move();
+    b.update();
     b.display();
   }
+
+  // opcional: un halo central muy sutil
+  noFill();
+  stroke(42, 40, 90, 8);
+  strokeWeight(min(width, height) * 0.45);
+  ellipse(0, 0, min(width, height) * 0.9);
+  noStroke();
 }
 
+// --------- touch / click handlers ----------
 function touchStarted() {
+  // primero toque: habilitar audio en iOS
+  if (!started) {
+    userStartAudio();
+    started = true;
+    removeTapOverlay();
+    // generar un leve mandala central para confirmar inicio
+    mandalas.push(new Mandala(0, 0));
+    return false;
+  }
+
+  // luego: detectar si se tocó alguna burbuja
+  let mx = mouseX - width / 2;
+  let my = mouseY - height / 2;
   for (let b of bubbles) {
-    if (dist(mouseX - width / 2, mouseY - height / 2, b.x, b.y) < b.size / 2) {
-      b.explode();
-      playSound();
+    if (dist(mx, my, b.x, b.y) < b.size * 0.6) {
+      // reacción visual y sonora
+      b.burst();
+      mandalas.push(new Mandala(b.x, b.y));
+      playBell(b); // sonido espacial
+      break; // sólo una por toque (sensible)
     }
   }
+  return false;
 }
 
-function playSound() {
-  osc.freq(random(220, 880));
-  osc.amp(0.1, 0.05);
-  osc.amp(0, 1);
-}
-
+// --------- Bubble class ----------
 class Bubble {
-  constructor(x, y, size) {
-    this.x = x;
-    this.y = y;
+  constructor(radius, speed, size) {
+    this.radius = radius;
+    this.ang = random(TWO_PI);
+    this.speed = speed;
     this.size = size;
-    this.angle = random(TWO_PI);
-    this.radius = random(80, 300);
-    this.speed = random(0.001, 0.005);
-    this.color = color(random(100, 255), random(100, 255), random(255), 120);
+    this.hue = random(200, 320); // violeta-azul-rosado
+    this.x = cos(this.ang) * this.radius;
+    this.y = sin(this.ang) * this.radius;
     this.brightness = 0;
   }
 
-  move() {
-    this.angle += this.speed;
-    this.x = cos(this.angle) * this.radius;
-    this.y = sin(this.angle) * this.radius;
-    this.brightness = max(0, this.brightness - 5);
+  update() {
+    this.ang += this.speed;
+    this.x = cos(this.ang) * this.radius;
+    this.y = sin(this.ang) * this.radius;
+    this.brightness = max(0, this.brightness - 6);
   }
 
   display() {
-    fill(red(this.color), green(this.color), blue(this.color), 150 + this.brightness);
-    ellipse(this.x, this.y, this.size);
+    push();
+    translate(this.x, this.y);
+    fill(this.hue, 150, 255, 0.55 + this.brightness / 512.0);
+    ellipse(0, 0, this.size);
+    // halo si recién reventó
+    if (this.brightness > 0) {
+      fill(60, 200, 255, this.brightness * 0.6);
+      ellipse(0, 0, this.size * (1.6 + this.brightness / 120.0));
+    }
+    pop();
   }
 
-  explode() {
-    this.brightness = 255;
-    for (let i = 0; i < 8; i++) {
-      let r = random(10, 60);
-      let a = random(TWO_PI);
-      fill(this.color);
-      ellipse(this.x + cos(a) * r, this.y + sin(a) * r, r * 0.2);
-    }
+  burst() {
+    this.brightness = 220;
   }
 }
 
+// --------- Mandala class ----------
+class Mandala {
+  constructor(cx, cy) {
+    this.cx = cx;
+    this.cy = cy;
+    this.r = min(width, height) * 0.02;
+    this.alpha = 255;
+    this.h = random(200, 320);
+    this.rotation = random(TWO_PI);
+    this.rotationSpeed = random(-0.03, 0.03);
+    this.petals = int(random(8, 16));
+    this.done = false;
+  }
+
+  update() {
+    this.r += 8;
+    this.alpha -= 6;
+    this.rotation += this.rotationSpeed;
+    if (this.alpha <= 0) this.done = true;
+  }
+
+  display() {
+    push();
+    translate(this.cx, this.cy);
+    rotate(this.rotation);
+    colorMode(HSB, 360, 255, 255, 255);
+    noStroke();
+    // capas de pétalos
+    for (let layer = 0; layer < 3; layer++) {
+      let rr = this.r + layer * 18;
+      let a = this.alpha - layer * 40;
+      for (let i = 0; i < this.petals; i++) {
+        let ang = TWO_PI / this.petals * i;
+        let px = cos(ang) * rr;
+        let py = sin(ang) * rr;
+        fill((this.h + layer * 12) % 360, 200, 255, a * 0.7);
+        ellipse(px, py, 18 - layer * 4, 10 - layer * 1.5);
+      }
+    }
+    // centro
+    fill((this.h + 30) % 360, 140, 255, this.alpha);
+    ellipse(0, 0, this.r * 0.6);
+    pop();
+  }
+}
+
+// --------- sound: bell-like with short envelope ----------
+function playBell(bubble) {
+  // create a short sine + triangle layered bell-ish tone
+  let o1 = new p5.Oscillator('sine');
+  let o2 = new p5.Oscillator('triangle');
+  let baseFreq = random(260, 720) * map(bubble.size, 8, 80, 0.7, 1.2);
+  o1.freq(baseFreq * random(0.9, 1.1));
+  o2.freq(baseFreq * 1.99);
+  o1.amp(0);
+  o2.amp(0);
+  o1.start();
+  o2.start();
+
+  // envelope
+  let envGain = 0.7;
+  o1.amp(envGain * 0.6, 0.02);
+  o2.amp(envGain * 0.4, 0.02);
+
+  // release
+  setTimeout(() => {
+    o1.amp(0, 0.5);
+    o2.amp(0, 0.5);
+    setTimeout(() => {
+      o1.stop();
+      o2.stop();
+    }, 600);
+  }, 120);
+}
+
+// --------- stars background ----------
+let starSeed = 42;
+function drawStars() {
+  randomSeed(starSeed);
+  for (let i = 0; i < 120; i++) {
+    let x = random(width);
+    let y = random(height);
+    let s = random(0.3, 1.6);
+    fill(220, 40, 255, random(8, 30));
+    ellipse(x, y, s);
+  }
+}
+
+// --------- overlay for first touch ----------
+function createTapOverlay(){
+  // build a simple DOM overlay to instruct the user
+  tapOverlayEl = createDiv('<div class="hint">💫 Tocá para comenzar</div>');
+  tapOverlayEl.id('tapOverlay');
+  // style via CSS already included in style.css
+}
+
+function removeTapOverlay(){
+  if (tapOverlayEl) {
+    tapOverlayEl.remove();
+    tapOverlayEl = null;
+  }
+}
+
+// --------- resize ----------
 function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
 }
